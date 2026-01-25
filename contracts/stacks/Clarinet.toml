@@ -1,0 +1,12 @@
+[project]
+name = "giftregistry"
+description = "On-chain gift and wish list manager"
+authors = ["solidworkssa"]
+telemetry = false
+cache_dir = ".cache"
+
+[contracts.giftregistry]
+path = "contracts/giftregistry.clar"
+
+[repl.analysis]
+passes = ["check_checker"]
