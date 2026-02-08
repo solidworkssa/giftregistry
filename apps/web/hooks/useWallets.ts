@@ -1,72 +1,177 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
-// Assuming these are singleton instances or created once
-const baseAdapter = new BaseWalletAdapter();
-const stacksAdapter = new StacksWalletAdapter();
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
+import { getBaseWallet } from '../../../packages/base-adapter/BaseWalletAdapter';
+import { getStacksWallet } from '../../../packages/stacks-adapter/StacksWalletAdapter';
 
 export function useWallets() {
   const [baseAddress, setBaseAddress] = useState<string | null>(null);
   const [stacksAddress, setStacksAddress] = useState<string | null>(null);
+  const [baseChainId, setBaseChainId] = useState<number | null>(null);
   const [isConnecting, setIsConnecting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // --- Base Logic ---
+  const baseWallet = getBaseWallet();
+  const stacksWallet = getStacksWallet('mainnet');
+
+  // Check for existing connections on mount
+  useEffect(() => {
+    const checkConnections = async () => {
+      // Check Base connection
+      const baseAddr = await baseWallet.getAddress();
+      if (baseAddr) {
+        setBaseAddress(baseAddr);
+        const chainId = await baseWallet.getChainId();
+        setBaseChainId(chainId);
+      }
+
+      // Check Stacks connection
+      if (stacksWallet.isConnected()) {
+        const stacksAddr = stacksWallet.getAddress();
+        setStacksAddress(stacksAddr);
+      }
+    };
+
+    checkConnections();
+  }, []);
+
+  // Set up event listeners
+  useEffect(() => {
+    const handleBaseConnect = (address: string) => {
+      setBaseAddress(address);
+      setError(null);
+    };
+
+    const handleBaseDisconnect = () => {
+      setBaseAddress(null);
+      setBaseChainId(null);
+    };
+
+    const handleBaseAccountChanged = (address: string) => {
+      setBaseAddress(address);
+    };
+
+    const handleBaseChainChanged = (chainId: number) => {
+      setBaseChainId(chainId);
+    };
+
+    const handleStacksConnect = (address: string) => {
+      setStacksAddress(address);
+      setError(null);
+    };
+
+    const handleStacksDisconnect = () => {
+      setStacksAddress(null);
+    };
+
+    baseWallet.on('connect', handleBaseConnect);
+    baseWallet.on('disconnect', handleBaseDisconnect);
+    baseWallet.on('accountChanged', handleBaseAccountChanged);
+    baseWallet.on('chainChanged', handleBaseChainChanged);
+
+    stacksWallet.on('connect', handleStacksConnect);
+    stacksWallet.on('disconnect', handleStacksDisconnect);
+
+    return () => {
+      baseWallet.off('connect', handleBaseConnect);
+      baseWallet.off('disconnect', handleBaseDisconnect);
+      baseWallet.off('accountChanged', handleBaseAccountChanged);
+      baseWallet.off('chainChanged', handleBaseChainChanged);
+
+      stacksWallet.off('connect', handleStacksConnect);
+      stacksWallet.off('disconnect', handleStacksDisconnect);
+    };
+  }, [baseWallet, stacksWallet]);
+
   const connectBase = useCallback(async () => {
     setIsConnecting(true);
+    setError(null);
+
     try {
-      const { address } = await baseAdapter.connect();
+      const address = await baseWallet.connect();
       setBaseAddress(address);
-      localStorage.setItem('wallet_connected_base', 'true');
-    } catch (e) {
-      console.error("Base Connect Error", e);
+
+      // Try to switch to Base network
+      try {
+        await baseWallet.switchToBase();
+        const chainId = await baseWallet.getChainId();
+        setBaseChainId(chainId);
+      } catch (switchError) {
+        console.warn('Could not switch to Base network:', switchError);
+      }
+    } catch (err: any) {
+      setError(err.message || 'Failed to connect Base wallet');
+      console.error('Base connection error:', err);
     } finally {
       setIsConnecting(false);
     }
-  }, []);
+  }, [baseWallet]);
 
-  // --- Stacks Logic ---
-  const connectStacks = useCallback(async () => {
+  const disconnectBase = useCallback(async () => {
     try {
-      const origin = typeof window !== 'undefined' ? window.location.origin : '';
-      const address = await stacksAdapter.connect("DApp", `${origin}/icon.png`);
+      await baseWallet.disconnect();
+      setBaseAddress(null);
+      setBaseChainId(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to disconnect Base wallet');
+      console.error('Base disconnection error:', err);
+    }
+  }, [baseWallet]);
+
+  const connectStacks = useCallback(async () => {
+    setIsConnecting(true);
+    setError(null);
+
+    try {
+      const address = await stacksWallet.connect();
       setStacksAddress(address);
-    } catch (e) {
-      console.error("Stacks Connect Error", e);
+    } catch (err: any) {
+      setError(err.message || 'Failed to connect Stacks wallet');
+      console.error('Stacks connection error:', err);
+    } finally {
+      setIsConnecting(false);
     }
-  }, []);
+  }, [stacksWallet]);
 
-  const disconnectAll = useCallback(() => {
-    stacksAdapter.disconnect();
-    // Add baseAdapter disconnect if supported
-    setBaseAddress(null);
-    setStacksAddress(null);
-    localStorage.removeItem('wallet_connected_base');
-  }, []);
-
-  // --- Auto-reconnect & Listeners ---
-  useEffect(() => {
-    // Check if user was previously connected to Base
-    if (localStorage.getItem('wallet_connected_base')) {
-      baseAdapter.getAddress().then(setBaseAddress).catch(() => {});
+  const disconnectStacks = useCallback(async () => {
+    try {
+      await stacksWallet.disconnect();
+      setStacksAddress(null);
+    } catch (err: any) {
+      setError(err.message || 'Failed to disconnect Stacks wallet');
+      console.error('Stacks disconnection error:', err);
     }
+  }, [stacksWallet]);
 
-    // Example listener (check your specific adapter API for 'accountChanged')
-    const handleAccountChange = (accounts: string[]) => {
-       setBaseAddress(accounts[0] || null);
-    };
+  const switchToBase = useCallback(async () => {
+    try {
+      await baseWallet.switchToBase();
+      const chainId = await baseWallet.getChainId();
+      setBaseChainId(chainId);
+    } catch (err: any) {
+      setError(err.message || 'Failed to switch to Base network');
+      console.error('Network switch error:', err);
+    }
+  }, [baseWallet]);
 
-    // cleanup
-    return () => {
-      // baseAdapter.off('accountsChanged', handleAccountChange);
-    };
-  }, []);
-
-  return useMemo(() => ({
+  return {
+    // Base wallet
     baseAddress,
-    stacksAddress,
+    baseChainId,
     connectBase,
+    disconnectBase,
+    switchToBase,
+    baseWallet,
+
+    // Stacks wallet
+    stacksAddress,
     connectStacks,
-    disconnectAll,
+    disconnectStacks,
+    stacksWallet,
+
+    // Shared state
     isConnecting,
-    baseAdapter,
-    stacksAdapter
-  }), [baseAddress, stacksAddress, connectBase, connectStacks, disconnectAll, isConnecting]);
+    error,
+    clearError: () => setError(null),
+  };
 }
