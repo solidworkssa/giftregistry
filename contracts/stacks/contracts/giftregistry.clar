@@ -1,30 +1,30 @@
-;; GiftRegistry - Wish list manager
+;; GiftRegistry Clarity Contract
+;; On-chain gift registry and contribution tracking.
 
-(define-data-var gift-counter uint u0)
 
-(define-map gifts uint {
-    wisher: principal,
-    item-name: (string-utf8 128),
-    estimated-cost: uint,
-    claimed: bool,
-    claimer: (optional principal)
-})
+(define-map items
+    uint
+    {
+        name: (string-utf8 64),
+        cost: uint,
+        funded: uint
+    }
+)
+(define-data-var item-nonce uint u0)
 
-(define-public (add-gift (item-name (string-utf8 128)) (cost uint))
-    (let ((gift-id (var-get gift-counter)))
-        (map-set gifts gift-id {
-            wisher: tx-sender,
-            item-name: item-name,
-            estimated-cost: cost,
-            claimed: false,
-            claimer: none
-        })
-        (var-set gift-counter (+ gift-id u1))
-        (ok gift-id)))
+(define-public (add-item (name (string-utf8 64)) (cost uint))
+    (let ((id (var-get item-nonce)))
+        (map-set items id {name: name, cost: cost, funded: u0})
+        (var-set item-nonce (+ id u1))
+        (ok id)
+    )
+)
 
-(define-public (claim-gift (gift-id uint))
-    (let ((gift (unwrap! (map-get? gifts gift-id) (err u100))))
-        (ok (map-set gifts gift-id (merge gift {claimed: true, claimer: (some tx-sender)})))))
+(define-public (contribute (id uint) (amount uint))
+    (let ((item (unwrap! (map-get? items id) (err u404))))
+        (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+        (map-set items id (merge item {funded: (+ (get funded item) amount)}))
+        (ok true)
+    )
+)
 
-(define-read-only (get-gift (gift-id uint))
-    (ok (map-get? gifts gift-id)))
