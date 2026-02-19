@@ -2,8 +2,11 @@
 pragma solidity ^0.8.20;
 
 /// @title GiftRegistry Contract
+/// @author solidworkssa
 /// @notice On-chain gift registry and contribution tracking.
 contract GiftRegistry {
+    string public constant VERSION = "1.0.0";
+
 
     struct Item {
         string name;
