@@ -36,7 +36,7 @@
 
 (define-public (contribute (id uint) (amount uint))
     (let ((item (unwrap! (map-get? items id) (err u404))))
-        (try! (stx-transfer? amount tx-sender (as-contract tx-sender)))
+        (try! (stx-transfer? amount contract-caller (as-contract contract-caller)))
         (map-set items id (merge item {funded: (+ (get funded item) amount)}))
         (ok true)
     )
